@@ -16,12 +16,14 @@ import {
   waveState,
 } from "./lib/flow.mjs";
 import { serveDeck } from "./server.mjs";
+import { runWatch } from "./tui.mjs";
 
 function usage(out = console.log) {
   out(`flow-deck — gate-aware operator dashboard for flow projects
 
 Usage:
   flow-deck serve [--port N] [--flow-bin PATH]
+  flow-deck watch [--flow-bin PATH]
   flow-deck status [--flow-bin PATH]
   flow-deck check C-NNN [--flow-bin PATH]
   flow-deck wave [--flow-bin PATH]
@@ -137,6 +139,12 @@ async function main(argv = process.argv.slice(2)) {
     const root = requireRoot();
     const wave = waveState(root, flowBin);
     process.stdout.write(formatWaveText(wave));
+    return 0;
+  }
+
+  if (cmd === "watch") {
+    const root = requireRoot();
+    await runWatch(root, { flowBin });
     return 0;
   }
 

@@ -1,6 +1,6 @@
 ---
 name: flow-deck
-description: "Gate-aware operator dashboard for a flow project. Use only when the user explicitly mentions flow-deck or FLOW_DECK=1 AND a flow project (cards/ or flow/) is present. Teaches status/serve/check/wave. Do not use merely because a task could use a dashboard."
+description: "Gate-aware operator dashboard for a flow project. Use only when the user explicitly mentions flow-deck or FLOW_DECK=1 AND a flow project (cards/ or flow/) is present. Teaches status/serve/watch/check/wave. Do not use merely because a task could use a dashboard."
 ---
 
 # flow-deck
@@ -41,9 +41,9 @@ flow-deck --help
 ```bash
 flow-deck status                 # one-shot board (cards × worktrees × gate state)
 flow-deck serve [--port 7420]    # local web board at http://127.0.0.1:7420 ; foreground; ^C quits
+flow-deck watch                  # foreground TUI board; same core; q / ^C quits. Not a pass.
 flow-deck check C-NNN            # exec flow.sh check in THAT card's worktree; relay rc
 flow-deck wave                   # print paste-ready enter blocks for the buildable set
-```
 
 Optional: `--flow-bin PATH` (or `FLOW_BIN`) to point at `flow.sh` / `flow.cmd`.
 
@@ -54,7 +54,7 @@ come from `.flow/workspaces.jsonl` joined with `git worktree list`. Never invent
 
 | Noun | Meaning |
 |---|---|
-| Board | the dashboard (CLI table or local web UI) |
+| Board | the dashboard (CLI table, local web UI, or TUI watch view) |
 | Card | `cards/C-NNN.md` — gated unit with `status:` and `## Evidence` |
 | Check | `flow.sh check C-NNN` run with **cwd = that card's worktree** |
 | Wave | print-enter blocks for currently BUILDABLE cards. Paste. Do not spawn. |
@@ -73,7 +73,7 @@ Never collapse these. A payments card that looks "alive" is not fine.
 
 ## Forbidden (by name)
 
-- Treating liveness, host-idle, a live worktree, or `flow-deck serve` as a **pass**.
+- Treating liveness, host-idle, a live worktree, `flow-deck serve`, or `flow-deck watch` as a **pass**.
 - Waiting on agents (`agent wait`, `orch-wait`, unbounded `--wait` on another model).
 - Pasting deck/host status into card `## Evidence`.
 - Installing hooks into `~/.claude` / `~/.omp`.
@@ -83,8 +83,10 @@ Never collapse these. A payments card that looks "alive" is not fine.
 - Running `flow.sh auto` as a supervisor from this skill.
 - Spawning coding agents. Wave is print-enter only.
 
-`flow-deck serve` is a foreground process the operator (or you) invoked; it exits on SIGINT.
-Do not hold it across another model's turn as evidence. Do not background it as a daemon.
+`flow-deck serve` and `flow-deck watch` are foreground processes the operator (or you) invoked;
+they exit on SIGINT (`watch` also on `q`). Do not hold them across another model's turn as
+evidence. Do not background them as a daemon. `watch` is a view, never a pass/evidence source.
+
 
 ## Check cwd rule
 
