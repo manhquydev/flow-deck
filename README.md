@@ -28,6 +28,7 @@ flow-deck wave             # print paste-ready "enter" blocks for the buildable 
 
 - Node.js ≥ 22.14
 - A flow project (`flow/` or `cards/`) with `flow.sh` on PATH (or pass `--flow-bin`).
+- Linux and macOS today. Windows (`flow.cmd` spawn + a Windows test fixture) is a tracked follow-up.
 
 ## Install
 
