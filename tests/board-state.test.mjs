@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { join, relative, isAbsolute } from "node:path";
 import {
   boardState,
   clearCheckCache,
@@ -208,11 +208,15 @@ test("relative FLOW_BIN resolves against process cwd, not the card worktree", (t
     rmSync(fx.worktree, { recursive: true, force: true });
   });
   const relBin = relative(process.cwd(), fx.flowBin);
-  assert.ok(!relBin.startsWith("/"), "fixture bin is not already relative-to-cwd");
+  if (isAbsolute(relBin)) {
+    t.skip("relative FLOW_BIN has no spelling when the bin is on another drive");
+    return;
+  }
+  assert.ok(!isAbsolute(relBin), "fixture bin is not already relative-to-cwd");
 
   const pass = runCheck(fx.root, "C-001", relBin);
   assert.equal(pass.cwdUnsafe, false);
   assert.equal(pass.cwd, fx.worktree);
   assert.equal(pass.rc, 0, pass.stderr);
-  assert.ok(pass.flowBin.startsWith("/"), "relative bin pinned to an absolute path before spawn");
+  assert.ok(isAbsolute(pass.flowBin), "relative bin pinned to an absolute path before spawn");
 });

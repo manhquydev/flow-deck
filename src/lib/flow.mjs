@@ -240,7 +240,7 @@ function parseGitWorktrees(root) {
   for (const line of String(r.stdout || "").split(/\r?\n/)) {
     if (line.startsWith("worktree ")) {
       if (cur) trees.push(cur);
-      cur = { worktree: line.slice(9), branch: null, bare: false };
+      cur = { worktree: resolve(line.slice(9)), branch: null, bare: false };
     } else if (line.startsWith("branch ") && cur) {
       cur.branch = line.slice(7).replace(/^refs\/heads\//, "");
     } else if (line === "bare" && cur) {
@@ -295,7 +295,7 @@ export function listWorkspaces(root) {
   const byGitBranch = new Map();
   for (const t of trees) {
     if (!t.worktree) continue;
-    byGitPath.set(resolve(t.worktree), t);
+    byGitPath.set(pathKey(t.worktree), t);
     if (t.branch) byGitBranch.set(t.branch, t);
   }
 
@@ -315,10 +315,13 @@ export function listWorkspaces(root) {
       typeof rec.worktree_path === "string" && rec.worktree_path
         ? rec.worktree_path
         : null;
-    const gitByPath = jsonPath ? byGitPath.get(resolve(jsonPath)) : null;
+    const gitByPath = jsonPath ? byGitPath.get(pathKey(jsonPath)) : null;
     const gitByBranch = branch ? byGitBranch.get(branch) : null;
     const git = gitByPath || gitByBranch;
     let worktree = git?.worktree || jsonPath;
+    if (jsonPath && git?.worktree && samePath(git.worktree, jsonPath)) {
+      worktree = jsonPath;
+    }
     if (worktree && !isDir(worktree) && !git) worktree = jsonPath;
     if (worktree && !isDir(worktree)) {
       // Keep the recorded path for display; runCheck will fall back to root.
@@ -398,10 +401,18 @@ export function readAutoLog(root) {
 
 function samePath(a, b) {
   try {
-    return resolve(a) === resolve(b);
+    const ra = resolve(a);
+    const rb = resolve(b);
+    if (process.platform === "win32") return ra.toLowerCase() === rb.toLowerCase();
+    return ra === rb;
   } catch {
     return false;
   }
+}
+
+function pathKey(p) {
+  const r = resolve(p);
+  return process.platform === "win32" ? r.toLowerCase() : r;
 }
 
 /**
@@ -418,10 +429,27 @@ export function resolveCheckCwd(root, cardId, workspaces = listWorkspaces(root))
   return { cwd: resolve(root), cwdUnsafe: true, worktree: recorded, ws };
 }
 
+/** cmd.exe metacharacters. Card ids and verbs (`check`, `ready`) are safe. */
+const CMD_SAFE_ARG = /^[A-Za-z0-9._+\-:]+$/;
+
 function spawnFlow(bin, args, { cwd, timeout }) {
-  const isWin = process.platform === "win32";
-  const useShell = isWin && /\.(cmd|bat)$/i.test(bin);
-  const r = spawnSync(bin, args, {
+  // Node >= 18 refuses to spawn .cmd/.bat without shell (CVE-2024-27980).
+  const useShell = process.platform === "win32" && /\.(cmd|bat)$/i.test(bin);
+  if (useShell) {
+    for (const a of args) {
+      if (!CMD_SAFE_ARG.test(a)) {
+        return {
+          rc: 1,
+          stdout: "",
+          stderr: "refusing to spawn flow.cmd with unsafe args",
+          timedOut: false,
+        };
+      }
+    }
+  }
+  const file =
+    useShell && /[\s&|^<>()]/.test(bin) ? `"${String(bin).replace(/"/g, "")}"` : bin;
+  const r = spawnSync(file, args, {
     cwd,
     encoding: "utf8",
     timeout,
@@ -698,9 +726,11 @@ function shortPath(p, root) {
   if (!p) return "—";
   const absRoot = resolve(root);
   const abs = resolve(p);
-  if (abs === absRoot) return ".";
+  if (samePath(abs, absRoot)) return ".";
   const prefix = absRoot.endsWith(sep) ? absRoot : absRoot + sep;
-  if (abs.startsWith(prefix)) return abs.slice(prefix.length);
+  const absCmp = process.platform === "win32" ? abs.toLowerCase() : abs;
+  const prefixCmp = process.platform === "win32" ? prefix.toLowerCase() : prefix;
+  if (absCmp.startsWith(prefixCmp)) return abs.slice(prefix.length);
   return p;
 }
 
