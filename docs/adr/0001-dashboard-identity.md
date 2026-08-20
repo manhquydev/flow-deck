@@ -17,9 +17,9 @@ world-state (cards, worktrees, gate results, debt) and **execs `flow.sh` invoked
 to show, in one surface, which cards of a parallel wave are
 `todo / building / ready-blocked / gate-FAIL / gate-PASS / Tier-C security halt / done`.
 
-The first surface is a **local web UI** (`flow-deck serve`, dsh-style). A terminal/TUI
-surface comes later on the same core. Both are just *views* of one core that reads flow
-artifacts and runs `flow.sh check`.
+The first surface is a **local web UI** (`flow-deck serve`, dsh-style). A second surface is a
+**foreground TUI** (`flow-deck watch`) on the same core. Both are just *views* of one core that
+reads flow artifacts and runs `flow.sh check`.
 
 ## Dependency arrow (non-negotiable)
 
@@ -28,7 +28,7 @@ artifacts and runs `flow.sh check`.
              ▲
              │  flow-deck exec's flow.sh + reads artifacts — NEVER the reverse
              │
-   flow-deck  (core + web + (later) TUI + companion skill)
+   flow-deck  (core + web + TUI watch + companion skill)
 ```
 
 - flow-skill MUST NOT require, detect, or vendor flow-deck.
@@ -52,7 +52,8 @@ artifacts and runs `flow.sh check`.
 
 ## Scope freeze (v1)
 
-**In:** `serve` (local web board), `status` (one-shot), `check C-NNN` (exec `flow.sh check`
+**In:** `serve` (local web board), `watch` (foreground TUI board; same core; not a PTY, not an
+emulator, not a daemon), `status` (one-shot), `check C-NNN` (exec `flow.sh check`
 with cwd = that card's worktree), `wave` (print paste-ready enter blocks).
 
 **Out, by name:** owning a PTY, a VT emulator, ConPTY, screen-scraping agent state, hook
