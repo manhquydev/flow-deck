@@ -1,6 +1,6 @@
 import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
 
 function sh(cwd, args) {
@@ -65,7 +65,7 @@ export function makeFixture() {
   // realpath so paths match what `git worktree list` returns: on macOS tmpdir is
   // /var/folders -> /private/var/folders (a symlink), which would break path compares.
   const root = realpathSync(mkdtempSync(join(tmpdir(), "flow-deck-fx-")));
-  const worktree = join(dirname(root), `${root.split("/").pop()}-C-001`);
+  let worktree = join(dirname(root), `${basename(root)}-C-001`);
 
   mkdirSync(join(root, "cards"), { recursive: true });
   mkdirSync(join(root, ".flow"), { recursive: true });
@@ -119,9 +119,9 @@ export function makeFixture() {
 `,
   );
 
-  const flowBin = join(root, "bin", "flow.sh");
+  const flowSh = join(root, "bin", "flow.sh");
   writeFileSync(
-    flowBin,
+    flowSh,
     `#!/usr/bin/env bash
 set -u
 cmd="\${1:-}"
@@ -151,7 +151,42 @@ case "$cmd" in
 esac
 `,
   );
-  chmodSync(flowBin, 0o755);
+  chmodSync(flowSh, 0o755);
+
+  let flowBin = flowSh;
+  if (process.platform === "win32") {
+    flowBin = join(root, "bin", "flow.cmd");
+    writeFileSync(
+      flowBin,
+      `@echo off
+setlocal EnableExtensions
+set "cmd=%~1"
+set "id=%~2"
+
+if /I "%cmd%"=="check" goto :check
+if /I "%cmd%"=="ready" goto :ready
+echo fake-flow: unknown %cmd% 1>&2
+exit /b 2
+
+:check
+echo CHECK_CWD=%CD%
+echo CARD=%id%
+if exist ".pass" (
+  echo PASS: %id%
+  exit /b 0
+)
+echo FAIL: %id% (no .pass in %CD%)
+exit /b 1
+
+:ready
+echo flow ready - buildable todo cards (deps met). Operator dispatches; runner advises.
+echo   BUILDABLE C-001  (deps: none)
+echo   BUILDABLE C-006  (deps: none)
+echo   blocked   C-002  (deps unmet or evidence floor failed: C-001)
+exit /b 0
+`,
+    );
+  }
 
   writeFileSync(join(root, "README.md"), "fixture\n");
   sh(root, ["git", "init", "-q"]);
@@ -160,6 +195,7 @@ esac
   sh(root, ["git", "add", "-A"]);
   sh(root, ["git", "commit", "-qm", "fixture"]);
   sh(root, ["git", "worktree", "add", "-q", worktree, "-b", "card/C-001"]);
+  worktree = realpathSync(worktree);
   writeFileSync(join(worktree, ".pass"), "ok\n");
 
   writeFileSync(
