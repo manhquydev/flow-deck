@@ -690,7 +690,7 @@ export function formatWaveText(wave) {
 
 function pad(s, n) {
   const t = String(s ?? "");
-  if (t.length >= n) return t.slice(0, n);
+  if (t.length > n) return t.slice(0, n - 1) + "\u2026";
   return t + " ".repeat(n - t.length);
 }
 
@@ -709,14 +709,9 @@ export function formatStatusTable(board) {
   if (!rows.length) return "No cards found.\n";
   const lines = [];
   lines.push(
-    pad("ID", 8) +
-      pad("STATE", 16) +
-      pad("TITLE", 28) +
-      pad("WORKTREE", 28) +
-      pad("VENDOR", 12) +
-      "CHECK",
+    [pad("ID", 7), pad("STATE", 14), pad("TITLE", 34), pad("WORKTREE", 30), pad("VENDOR", 10), "CHECK"].join("  "),
   );
-  lines.push("-".repeat(100));
+  lines.push("-".repeat(110));
   for (const r of rows) {
     const wt = r.cwdUnsafe
       ? r.worktree
@@ -729,12 +724,7 @@ export function formatStatusTable(board) {
         : `fail rc=${r.lastCheck.rc}`
       : "—";
     lines.push(
-      pad(r.id, 8) +
-        pad(r.state, 16) +
-        pad(r.title, 28) +
-        pad(wt, 28) +
-        pad(r.vendor || "—", 12) +
-        check,
+      [pad(r.id, 7), pad(r.state, 14), pad(r.title, 34), pad(wt, 30), pad(r.vendor || "—", 10), check].join("  "),
     );
   }
   return lines.join("\n") + "\n";
