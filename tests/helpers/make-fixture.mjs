@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, writeFileSync, chmodSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -62,7 +62,9 @@ ${ev}
  * Root does not have `.pass`; the C-001 worktree does.
  */
 export function makeFixture() {
-  const root = mkdtempSync(join(tmpdir(), "flow-deck-fx-"));
+  // realpath so paths match what `git worktree list` returns: on macOS tmpdir is
+  // /var/folders -> /private/var/folders (a symlink), which would break path compares.
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "flow-deck-fx-")));
   const worktree = join(dirname(root), `${root.split("/").pop()}-C-001`);
 
   mkdirSync(join(root, "cards"), { recursive: true });
