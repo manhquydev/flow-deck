@@ -208,6 +208,10 @@ test("relative FLOW_BIN resolves against process cwd, not the card worktree", (t
     rmSync(fx.worktree, { recursive: true, force: true });
   });
   const relBin = relative(process.cwd(), fx.flowBin);
+  if (isAbsolute(relBin)) {
+    t.skip("relative FLOW_BIN has no spelling when the bin is on another drive");
+    return;
+  }
   assert.ok(!isAbsolute(relBin), "fixture bin is not already relative-to-cwd");
 
   const pass = runCheck(fx.root, "C-001", relBin);

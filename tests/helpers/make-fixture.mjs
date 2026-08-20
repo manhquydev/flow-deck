@@ -17,6 +17,15 @@ function sh(cwd, args) {
   return r;
 }
 
+/** One canonical spelling: macOS /var symlink, Windows 8.3 short names. */
+function realpathOnce(p) {
+  const impl = typeof realpathSync.native === "function" ? realpathSync.native : realpathSync;
+  let out = impl(p);
+  if (out.startsWith("\\\\?\\UNC\\")) return `\\\\${out.slice(8)}`;
+  if (out.startsWith("\\\\?\\")) return out.slice(4);
+  return out;
+}
+
 function card({ id, title, status, deps, evidence, risk }) {
   const ev = evidence ?? (status === "done" ? "$ curl https://x/healthz -> 200 PASS\npath src/cli.mjs exists\n" : "");
   return `# ${id} — ${title}
@@ -62,9 +71,10 @@ ${ev}
  * Root does not have `.pass`; the C-001 worktree does.
  */
 export function makeFixture() {
-  // realpath so paths match what `git worktree list` returns: on macOS tmpdir is
-  // /var/folders -> /private/var/folders (a symlink), which would break path compares.
-  const root = realpathSync(mkdtempSync(join(tmpdir(), "flow-deck-fx-")));
+  // Canonicalize the temp root once. Every derived path (worktree, bin, jsonl)
+  // comes from this spelling so tests, git porcelain, and enter-block `cd`
+  // agree: macOS /var -> /private/var; Windows RUNNER~1 -> runneradmin.
+  const root = realpathOnce(mkdtempSync(join(tmpdir(), "flow-deck-fx-")));
   let worktree = join(dirname(root), `${basename(root)}-C-001`);
 
   mkdirSync(join(root, "cards"), { recursive: true });
@@ -195,7 +205,7 @@ exit /b 0
   sh(root, ["git", "add", "-A"]);
   sh(root, ["git", "commit", "-qm", "fixture"]);
   sh(root, ["git", "worktree", "add", "-q", worktree, "-b", "card/C-001"]);
-  worktree = realpathSync(worktree);
+  worktree = realpathOnce(worktree);
   writeFileSync(join(worktree, ".pass"), "ok\n");
 
   writeFileSync(
