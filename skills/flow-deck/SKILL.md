@@ -39,7 +39,7 @@ flow-deck --help
 ## Closed command list (v1)
 
 ```bash
-flow-deck status                 # one-shot board (cards × worktrees × gate state)
+flow-deck status                 # one-shot board (cards × worktrees × STATES)
 flow-deck serve [--port 7420]    # local web board at http://127.0.0.1:7420 ; foreground; ^C quits
 flow-deck watch                  # foreground TUI board; same core; q / ^C quits. Not a pass.
 flow-deck check C-NNN            # exec flow.sh check in THAT card's worktree; relay rc

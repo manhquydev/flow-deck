@@ -127,6 +127,9 @@ async function main(argv = process.argv.slice(2)) {
     const result = runCheck(root, normalizeCardId(id), flowBin);
     if (result.stdout) process.stdout.write(result.stdout.endsWith("\n") ? result.stdout : result.stdout + "\n");
     if (result.stderr) process.stderr.write(result.stderr.endsWith("\n") ? result.stderr : result.stderr + "\n");
+    if (result.execKind && result.execKind !== "ran") {
+      console.error(`exec ${result.execKind}`);
+    }
     if (result.cwdUnsafe) {
       console.error(`cwd=root (unsafe)  ${result.cwd}`);
     } else {

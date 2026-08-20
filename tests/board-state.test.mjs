@@ -1,12 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { join, relative, isAbsolute } from "node:path";
+import { basename, dirname, join, relative, isAbsolute } from "node:path";
 import {
   boardState,
   clearCheckCache,
   findProjectRoot,
+  formatStatusTable,
+  formatWaveText,
   listCards,
   listWorkspaces,
   runCheck,
@@ -219,4 +222,114 @@ test("relative FLOW_BIN resolves against process cwd, not the card worktree", (t
   assert.equal(pass.cwd, fx.worktree);
   assert.equal(pass.rc, 0, pass.stderr);
   assert.ok(isAbsolute(pass.flowBin), "relative bin pinned to an absolute path before spawn");
+});
+
+test("EACCES on flow.sh is execKind eacces, not check-fail", (t) => {
+  if (process.platform === "win32") {
+    t.skip("EACCES on a chmod 644 script is a POSIX spawn story");
+    return;
+  }
+  const fx = makeFixture();
+  t.after(() => {
+    clearCheckCache(fx.root);
+    rmSync(fx.root, { recursive: true, force: true });
+    rmSync(fx.worktree, { recursive: true, force: true });
+  });
+  chmodSync(fx.flowBin, 0o644);
+  const result = runCheck(fx.root, "C-001", fx.flowBin);
+  assert.equal(result.execKind, "eacces");
+  assert.equal(result.rc, 126);
+  const row = byId(boardState(fx.root))["C-001"];
+  assert.notEqual(row.state, "check-fail");
+  assert.equal(row.lastCheck.execKind, "eacces");
+  assert.match(formatStatusTable(boardState(fx.root)), /exec EACCES/);
+  assert.doesNotMatch(formatStatusTable(boardState(fx.root)), /fail rc=1/);
+});
+
+test("missing flow bin is execKind enoent, not check-fail", (t) => {
+  const fx = makeFixture();
+  t.after(() => {
+    clearCheckCache(fx.root);
+    rmSync(fx.root, { recursive: true, force: true });
+    rmSync(fx.worktree, { recursive: true, force: true });
+  });
+  const missing = join(fx.root, "bin", "missing-flow.sh");
+  const result = runCheck(fx.root, "C-001", missing);
+  assert.equal(result.execKind, "enoent");
+  assert.equal(result.rc, 127);
+  const row = byId(boardState(fx.root))["C-001"];
+  assert.notEqual(row.state, "check-fail");
+  assert.equal(row.lastCheck.execKind, "enoent");
+});
+
+test("formatStatusTable CHECK is unsafe not pass when cwdUnsafe rc=0", () => {
+  const table = formatStatusTable({
+    root: "/tmp/proj",
+    rows: [
+      {
+        id: "C-001",
+        title: "Shipped",
+        status: "done",
+        state: "done",
+        cwdUnsafe: true,
+        worktree: null,
+        vendor: "",
+        lastCheck: { rc: 0, cwdUnsafe: true, execKind: "ran", at: 1 },
+      },
+    ],
+    unassignedWorktrees: [],
+  });
+  assert.match(table, /unsafe/);
+  assert.doesNotMatch(table, /\bpass\b/);
+});
+
+test("orphan git worktree is unassigned, never a guessed C-NNN", (t) => {
+  const fx = makeFixture();
+  const orphan = join(dirname(fx.root), `${basename(fx.root)}-orphan`);
+  t.after(() => {
+    clearCheckCache(fx.root);
+    spawnSync("git", ["worktree", "remove", "-f", orphan], { cwd: fx.root, encoding: "utf8" });
+    rmSync(fx.root, { recursive: true, force: true });
+    rmSync(fx.worktree, { recursive: true, force: true });
+    rmSync(orphan, { recursive: true, force: true });
+  });
+  const add = spawnSync("git", ["worktree", "add", "-q", orphan, "-b", "feat/C-099-orphan"], {
+    cwd: fx.root,
+    encoding: "utf8",
+  });
+  assert.equal(add.status, 0, add.stderr);
+  const board = boardState(fx.root);
+  assert.ok(
+    board.unassignedWorktrees.some((u) => u.branch === "feat/C-099-orphan"),
+    JSON.stringify(board.unassignedWorktrees),
+  );
+  assert.equal(board.rows.some((r) => r.id === "C-099"), false);
+  const table = formatStatusTable(board);
+  assert.match(table, /UNASSIGNED/);
+  assert.match(table, /feat\/C-099-orphan/);
+  assert.doesNotMatch(table, /^C-099\b/m);
+});
+
+test("all-done empty wave is audit copy, exit still a formatter concern", () => {
+  const table = formatStatusTable({
+    root: "/tmp/proj",
+    rows: [
+      {
+        id: "C-001",
+        title: "Shipped",
+        status: "done",
+        state: "done",
+        cwdUnsafe: true,
+        worktree: null,
+        vendor: "",
+        lastCheck: null,
+      },
+    ],
+    unassignedWorktrees: [],
+  });
+  assert.match(table, /audit:/);
+  assert.match(table, /—/);
+  const wave = formatWaveText({ blocks: [], blocked: [], audit: true });
+  assert.match(wave, /No buildable cards/);
+  assert.match(wave, /audit:/);
 });
