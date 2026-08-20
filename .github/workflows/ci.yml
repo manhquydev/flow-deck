@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        # engines.node is >=22.14. Node 22 is the floor; Node 24 is current LTS.
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: ["22", "24"]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Print environment
+        run: |
+          node --version
+          echo "OS: $RUNNER_OS"
+        shell: bash
+
+      # Glob is expanded by bash. GitHub windows-latest ships Git Bash, so this
+      # is the same command on ubuntu/macos/windows. cmd/powershell would not
+      # expand tests/*.test.mjs and node --test tests/ can treat the dir as CJS.
+      - name: Run tests
+        run: node --test tests/*.test.mjs
+        shell: bash
+
+      - name: CLI usage and import smoke
+        run: |
+          rc=0
+          node src/cli.mjs >/dev/null 2>&1 || rc=$?
+          test "$rc" -eq 2
+          node -e "import('./src/lib/flow.mjs')"
+        shell: bash
