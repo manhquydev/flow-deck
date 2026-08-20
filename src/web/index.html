@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>flow-deck</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="top">
+      <div class="brand">
+        <span class="mark" aria-hidden="true"></span>
+        <div>
+          <h1>flow-deck</h1>
+          <p class="tag">gate-aware board · not a terminal · not flow</p>
+        </div>
+      </div>
+      <div class="meta">
+        <div class="pill" id="project-pill">project —</div>
+        <div class="pill" id="clock-pill">poll 2s</div>
+        <div class="pill dim">127.0.0.1</div>
+      </div>
+    </header>
+
+    <nav class="tabs" role="tablist">
+      <button class="tab on" data-view="board" type="button">Board</button>
+      <button class="tab" data-view="wave" type="button">Wave</button>
+    </nav>
+
+    <section class="legend" aria-label="state legend">
+      <div class="legend-row">
+        <span class="badge todo">todo</span>
+        <span class="badge building">building</span>
+        <span class="badge check-pass">check-pass</span>
+        <span class="badge check-fail">check-fail</span>
+        <span class="badge done">done</span>
+      </div>
+      <div class="legend-block">
+        <h2>Four blocked senses — never collapse</h2>
+        <ul>
+          <li><span class="dot host"></span><strong>host/mux-blocked</strong> — pane approval chrome; v1 does not probe a mux</li>
+          <li><span class="dot sub"></span><strong>subagent-BLOCKED</strong> — worker returned BLOCKED / NEEDS_CONTEXT</li>
+          <li><span class="dot ready"></span><strong>ready-blocked</strong> — deps unmet or evidence floor failed</li>
+          <li><span class="dot halt"></span><strong>security-halt</strong> — Tier-C security-class; operator DEBT only</li>
+        </ul>
+        <p class="warn">A live worktree is not a pass. <code>check-pass</code> means <code>flow.sh check</code> exited 0 in that card’s worktree.</p>
+      </div>
+    </section>
+
+    <section id="view-board" class="view on">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>card</th>
+              <th>title</th>
+              <th>worktree</th>
+              <th>vendor</th>
+              <th>state</th>
+              <th>last check</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="board-body">
+            <tr><td colspan="7" class="empty">loading board…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="view-wave" class="view">
+      <div class="wave-bar">
+        <p>Paste-ready enter blocks for the <strong>buildable</strong> set. Print only — deck never spawns agents.</p>
+        <button type="button" id="copy-wave">Copy</button>
+      </div>
+      <pre id="wave-text" class="wave"></pre>
+    </section>
+
+    <footer>
+      <span>done = check in the card worktree</span>
+      <span id="err" class="err" hidden></span>
+    </footer>
+  </div>
+  <script src="/app.js"></script>
+</body>
+</html>
