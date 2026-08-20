@@ -48,7 +48,12 @@ function sendJson(res, status, obj) {
 
 function safeWebFile(urlPath) {
   const rel = urlPath === "/" ? "index.html" : urlPath.replace(/^\/+/, "");
-  const decoded = decodeURIComponent(rel);
+  let decoded;
+  try {
+    decoded = decodeURIComponent(rel);
+  } catch {
+    return null;
+  }
   const abs = resolve(WEB_ROOT, decoded);
   const root = WEB_ROOT.endsWith(sep) ? WEB_ROOT : WEB_ROOT + sep;
   if (abs !== WEB_ROOT && !abs.startsWith(root)) return null;
@@ -169,6 +174,9 @@ export function createDeckServer(opts = {}) {
     flowBin,
     url: `http://${host}:${port}`,
     listen() {
+      if (host !== "127.0.0.1" && host !== "localhost") {
+        return Promise.reject(new Error("flow-deck binds only to 127.0.0.1"));
+      }
       return new Promise((resolveListen, reject) => {
         server.once("error", reject);
         server.listen(port, host, () => {
@@ -185,9 +193,6 @@ export function createDeckServer(opts = {}) {
 
 export async function serveDeck(opts = {}) {
   const deck = createDeckServer(opts);
-  if (deck.host !== "127.0.0.1" && deck.host !== "localhost") {
-    throw new Error("flow-deck binds only to 127.0.0.1");
-  }
   await deck.listen();
   const stop = () => {
     deck.close().then(() => process.exit(0));

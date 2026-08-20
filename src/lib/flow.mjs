@@ -9,7 +9,7 @@ import {
   readdirSync,
   statSync,
 } from "node:fs";
-import { basename, dirname, join, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 
 export const DEFAULT_PORT = 7420;
 export const DEFAULT_HOST = "127.0.0.1";
@@ -111,13 +111,21 @@ export function findProjectRoot(cwd = process.cwd()) {
   }
 }
 
-export function resolveFlowBin(explicit) {
-  if (explicit && String(explicit).trim()) return String(explicit).trim();
-  if (process.env.FLOW_BIN && process.env.FLOW_BIN.trim()) {
-    return process.env.FLOW_BIN.trim();
+export function resolveFlowBin(explicit, fromCwd = process.cwd()) {
+  let bin;
+  if (explicit && String(explicit).trim()) bin = String(explicit).trim();
+  else if (process.env.FLOW_BIN && process.env.FLOW_BIN.trim()) {
+    bin = process.env.FLOW_BIN.trim();
+  } else if (process.platform === "win32") {
+    return "flow.cmd";
+  } else {
+    return "flow.sh";
   }
-  if (process.platform === "win32") return "flow.cmd";
-  return "flow.sh";
+  if (isAbsolute(bin)) return bin;
+  // Bare names stay on PATH. Relative paths pin to process/project cwd so
+  // spawnSync does not re-resolve them against the card worktree.
+  if (!bin.includes("/") && !bin.includes("\\")) return bin;
+  return resolve(fromCwd, bin);
 }
 
 function frontMatterValue(text, key) {
@@ -397,13 +405,15 @@ function samePath(a, b) {
 }
 
 /**
- * Dedicated card worktree — not the project root.
+ * Dedicated card worktree — git-verified sibling, not the project root.
+ * jsonl-only / missing / non-dir paths are unsafe and fall back to root.
  */
 export function resolveCheckCwd(root, cardId, workspaces = listWorkspaces(root)) {
   const ws = workspaces.get(normalizeCardId(cardId));
   const recorded = ws?.worktree || null;
-  if (recorded && isDir(recorded) && !samePath(recorded, root)) {
-    return { cwd: resolve(recorded), cwdUnsafe: false, worktree: resolve(recorded), ws };
+  const gitPath = ws?.fromGit && recorded ? resolve(recorded) : null;
+  if (gitPath && isDir(gitPath) && !samePath(gitPath, root)) {
+    return { cwd: gitPath, cwdUnsafe: false, worktree: gitPath, ws };
   }
   return { cwd: resolve(root), cwdUnsafe: true, worktree: recorded, ws };
 }
@@ -486,9 +496,10 @@ function deriveState(card, ctx) {
   // Four blocked senses stay distinct: security-halt never collapses into ready-blocked.
   if (halt) return "security-halt";
   if (last) {
-    // Only an actual check rc==0 in the worktree is check-pass. Liveness never reaches here.
-    if (last.rc === 0) return "check-pass";
-    return "check-fail";
+    // Only an actual check rc==0 in a git-verified worktree is check-pass.
+    // cwdUnsafe (root fallback / jsonl-only path) must never go green.
+    if (last.rc === 0 && !last.cwdUnsafe) return "check-pass";
+    if (last.rc !== 0) return "check-fail";
   }
   if (card.status === "done") return "done";
   if (unmet) return "ready-blocked";

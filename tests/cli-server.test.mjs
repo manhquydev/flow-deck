@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
+import http from "node:http";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { createDeckServer } from "../src/server.mjs";
@@ -97,4 +98,45 @@ test("HTTP /api/board and POST /api/check use worktree cwd", async (t) => {
 
   const wave = await (await fetch(base + "/api/wave")).json();
   assert.ok(wave.buildable.includes("C-001"));
+});
+
+function getRaw(port, path) {
+  return new Promise((resolveRaw, reject) => {
+    const req = http.request({ host: "127.0.0.1", port, path }, (res) => {
+      const chunks = [];
+      res.on("data", (c) => chunks.push(c));
+      res.on("end", () =>
+        resolveRaw({ status: res.statusCode, body: Buffer.concat(chunks).toString() }),
+      );
+    });
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+test("GET /% is 400/404 not 500", async (t) => {
+  const fx = makeFixture();
+  const deck = createDeckServer({
+    root: fx.root,
+    flowBin: fx.flowBin,
+    host: "127.0.0.1",
+    port: 0,
+  });
+  t.after(async () => {
+    await deck.close();
+    clearCheckCache(fx.root);
+    rmSync(fx.root, { recursive: true, force: true });
+    rmSync(fx.worktree, { recursive: true, force: true });
+  });
+  await deck.listen();
+  const { port } = deck.server.address();
+  const res = await getRaw(port, "/%");
+  assert.notEqual(res.status, 500);
+  assert.ok(res.status === 400 || res.status === 404, `got ${res.status}`);
+  assert.doesNotMatch(res.body, /URI malformed/);
+});
+
+test("createDeckServer.listen refuses non-localhost hosts", async () => {
+  const deck = createDeckServer({ host: "0.0.0.0", port: 0 });
+  await assert.rejects(() => deck.listen(), /127\.0\.0\.1/);
 });

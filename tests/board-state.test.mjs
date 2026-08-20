@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import {
   boardState,
   clearCheckCache,
@@ -140,4 +140,79 @@ test("waveState composes BUILDABLE enter blocks from ready + workspace list", (t
   assert.equal(c1.text.includes("/dev/pts/"), false);
   const c6 = wave.blocks.find((b) => b.id === "C-006");
   assert.match(c6.text, /no worktree/);
+});
+
+test("root .pass with no worktree is cwdUnsafe and never check-pass", (t) => {
+  const fx = makeFixture();
+  t.after(() => {
+    clearCheckCache(fx.root);
+    rmSync(fx.root, { recursive: true, force: true });
+    rmSync(fx.worktree, { recursive: true, force: true });
+  });
+  writeFileSync(join(fx.root, ".pass"), "ok\n");
+
+  const result = runCheck(fx.root, "C-006", fx.flowBin);
+  assert.equal(result.cwdUnsafe, true);
+  assert.equal(result.cwd, fx.root);
+  assert.equal(result.rc, 0, "root .pass makes flow.sh exit 0 — still not a pass");
+
+  const row = byId(boardState(fx.root))["C-006"];
+  assert.equal(row.cwdUnsafe, true);
+  assert.notEqual(row.state, "check-pass");
+  assert.equal(row.lastCheck.rc, 0);
+  assert.equal(row.lastCheck.cwdUnsafe, true);
+});
+
+test("jsonl-only worktree_path that is not a git worktree is cwdUnsafe, not check-pass", (t) => {
+  const fx = makeFixture();
+  const evil = mkdtempSync(join(tmpdir(), "flow-deck-evil-"));
+  t.after(() => {
+    clearCheckCache(fx.root);
+    rmSync(fx.root, { recursive: true, force: true });
+    rmSync(fx.worktree, { recursive: true, force: true });
+    rmSync(evil, { recursive: true, force: true });
+  });
+  writeFileSync(join(evil, ".pass"), "ok\n");
+  appendFileSync(
+    join(fx.root, ".flow", "workspaces.jsonl"),
+    JSON.stringify({
+      worktree_path: evil,
+      branch: "card/C-006",
+      vendor: "claude",
+      card_id: "C-006",
+      status: "active",
+      created_at: 3,
+    }) + "\n",
+  );
+
+  const rec = listWorkspaces(fx.root).get("C-006");
+  assert.ok(rec);
+  assert.equal(rec.fromGit, false);
+
+  const result = runCheck(fx.root, "C-006", fx.flowBin);
+  assert.equal(result.cwdUnsafe, true);
+  assert.equal(result.cwd, fx.root);
+  assert.notEqual(result.cwd, evil, "must not exec in a jsonl-only path");
+  assert.notEqual(result.rc, 0, "root has no .pass; evil dir must not be used");
+
+  const row = byId(boardState(fx.root))["C-006"];
+  assert.equal(row.cwdUnsafe, true);
+  assert.notEqual(row.state, "check-pass");
+});
+
+test("relative FLOW_BIN resolves against process cwd, not the card worktree", (t) => {
+  const fx = makeFixture();
+  t.after(() => {
+    clearCheckCache(fx.root);
+    rmSync(fx.root, { recursive: true, force: true });
+    rmSync(fx.worktree, { recursive: true, force: true });
+  });
+  const relBin = relative(process.cwd(), fx.flowBin);
+  assert.ok(!relBin.startsWith("/"), "fixture bin is not already relative-to-cwd");
+
+  const pass = runCheck(fx.root, "C-001", relBin);
+  assert.equal(pass.cwdUnsafe, false);
+  assert.equal(pass.cwd, fx.worktree);
+  assert.equal(pass.rc, 0, pass.stderr);
+  assert.ok(pass.flowBin.startsWith("/"), "relative bin pinned to an absolute path before spawn");
 });

@@ -20,7 +20,7 @@ flow-deck wave             # print paste-ready "enter" blocks for the buildable 
 ```
 
 - Reads `cards/*.md`, `.flow/workspaces.jsonl`, `git worktree list`, `DEBT.md`, `AUTO-LOG.md`.
-- Runs `flow.sh check C-NNN` with **cwd = that card's worktree** (never the project root).
+- Runs `flow.sh check C-NNN` with **cwd = that card's git worktree**. No worktree → labeled `cwd=root (unsafe)` fallback (visible, never a pass).
 - Never spawns agents. Never owns a terminal. Never a resident daemon.
 
 ## Requirements
