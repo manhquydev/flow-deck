@@ -17,7 +17,7 @@ export const CHECK_TIMEOUT_MS = 30_000;
 export const FLOW_TIMEOUT_MS = 15_000;
 export const GIT_TIMEOUT_MS = 5_000;
 
-/** @type {Map<string, { rc: number, stdout: string, stderr: string, cwd: string, cwdUnsafe: boolean, at: number, timedOut?: boolean }>} */
+/** @type {Map<string, { rc: number, stdout: string, stderr: string, cwd: string, cwdUnsafe: boolean, at: number, timedOut?: boolean, execKind?: string }>} */
 const lastChecks = new Map();
 
 export const STATES = Object.freeze([
@@ -53,6 +53,7 @@ export function rememberCheck(root, cardId, result) {
     cwd: result.cwd,
     cwdUnsafe: Boolean(result.cwdUnsafe),
     timedOut: Boolean(result.timedOut),
+    execKind: result.execKind || "ran",
     at: result.at ?? Date.now(),
   });
 }
@@ -338,6 +339,25 @@ export function listWorkspaces(root) {
   return byCard;
 }
 
+/**
+ * Git worktrees that are not the project root and not assigned via jsonl.
+ * Never invents a C-NNN from a branch name.
+ */
+export function listUnassignedWorktrees(root, workspaces = listWorkspaces(root)) {
+  const assigned = new Set();
+  for (const ws of workspaces.values()) {
+    if (ws?.worktree) assigned.add(pathKey(ws.worktree));
+  }
+  const out = [];
+  for (const t of parseGitWorktrees(root)) {
+    if (!t.worktree || t.bare) continue;
+    if (samePath(t.worktree, root)) continue;
+    if (assigned.has(pathKey(t.worktree))) continue;
+    out.push({ path: t.worktree, branch: t.branch || "" });
+  }
+  return out;
+}
+
 const SECURITY_LINE_RE =
   /security-class|\btier-c\b|tier\s*c\s+halt|\btier=c\b/i;
 const SECURITY_KEYWORD_RE =
@@ -443,6 +463,7 @@ function spawnFlow(bin, args, { cwd, timeout }) {
           stdout: "",
           stderr: "refusing to spawn flow.cmd with unsafe args",
           timedOut: false,
+          execKind: "refused",
         };
       }
     }
@@ -462,9 +483,22 @@ function spawnFlow(bin, args, { cwd, timeout }) {
   const stdout = String(r.stdout || "");
   const stderr = String(r.stderr || "") + (r.error && !timedOut ? `\n${r.error.message}` : "");
   let rc = typeof r.status === "number" ? r.status : 1;
-  if (timedOut) rc = 124;
-  if (r.error && r.error.code === "ENOENT") rc = 127;
-  return { rc, stdout, stderr, timedOut };
+  let execKind = "ran";
+  if (timedOut) {
+    rc = 124;
+    execKind = "timeout";
+  } else if (r.error && r.error.code === "ENOENT") {
+    rc = 127;
+    execKind = "enoent";
+  } else if (r.error && r.error.code === "EACCES") {
+    rc = 126;
+    execKind = "eacces";
+  } else if (r.error) {
+    execKind = "spawn-error";
+  } else if (typeof r.status !== "number") {
+    execKind = "spawn-error";
+  }
+  return { rc, stdout, stderr, timedOut, execKind };
 }
 
 /**
@@ -486,6 +520,7 @@ export function runCheck(root, cardId, flowBin, opts = {}) {
     cwd: resolved.cwd,
     cwdUnsafe: resolved.cwdUnsafe,
     timedOut: exec.timedOut,
+    execKind: exec.execKind || "ran",
     flowBin: bin,
     at: Date.now(),
   };
@@ -523,8 +558,8 @@ function deriveState(card, ctx) {
   } = ctx;
   // Four blocked senses stay distinct: security-halt never collapses into ready-blocked.
   if (halt) return "security-halt";
-  if (last) {
-    // Only an actual check rc==0 in a git-verified worktree is check-pass.
+  if (last && (last.execKind || "ran") === "ran") {
+    // Gate states only after flow.sh actually ran. EACCES/ENOENT/timeout ≠ fail.
     // cwdUnsafe (root fallback / jsonl-only path) must never go green.
     if (last.rc === 0 && !last.cwdUnsafe) return "check-pass";
     if (last.rc !== 0) return "check-fail";
@@ -581,6 +616,7 @@ export function boardState(root) {
             cwd: last.cwd,
             cwdUnsafe: last.cwdUnsafe,
             timedOut: last.timedOut,
+            execKind: last.execKind || "ran",
           }
         : null,
       flags: {
@@ -603,6 +639,7 @@ export function boardState(root) {
       })),
     },
     rows,
+    unassignedWorktrees: listUnassignedWorktrees(root, workspaces),
   };
 }
 
@@ -695,6 +732,10 @@ export function waveState(root, flowBin) {
       text: printEnterBlock({ id, title: card.title || id }, ws),
     };
   });
+  const audit =
+    cards.length > 0 &&
+    cards.every((c) => c.status === "done") &&
+    parsed.buildable.length === 0;
   return {
     source,
     rc: exec.rc,
@@ -703,6 +744,7 @@ export function waveState(root, flowBin) {
     buildable: parsed.buildable,
     blocked: parsed.blocked,
     blocks,
+    audit,
   };
 }
 
@@ -711,9 +753,29 @@ export function formatWaveText(wave) {
     const extra = wave.blocked.length
       ? `\nready-blocked: ${wave.blocked.join(", ")}`
       : "";
-    return `No buildable cards.${extra}\n`;
+    const audit = wave.audit
+      ? "\naudit: all cards done — empty wave is expected, not a stuck wave."
+      : "";
+    return `No buildable cards.${extra}${audit}\n`;
   }
   return wave.blocks.map((b) => b.text).join("\n\n") + "\n";
+}
+
+/** CHECK glyph. Spawn misses are not gate-fail. cwdUnsafe never prints pass. */
+export function formatCheckCell(last, cwdUnsafe = false) {
+  if (!last) return "—";
+  const kind = last.execKind || "ran";
+  if (kind !== "ran") {
+    if (kind === "eacces") return "exec EACCES";
+    if (kind === "enoent") return "exec ENOENT";
+    if (kind === "timeout") return "exec timeout";
+    if (kind === "refused") return "exec refused";
+    return "exec error";
+  }
+  if (cwdUnsafe || last.cwdUnsafe) {
+    return last.rc === 0 ? "unsafe" : `fail rc=${last.rc}`;
+  }
+  return last.rc === 0 ? "pass" : `fail rc=${last.rc}`;
 }
 
 function pad(s, n) {
@@ -735,27 +797,44 @@ function shortPath(p, root) {
 }
 
 export function formatStatusTable(board) {
-  const rows = board.rows;
-  if (!rows.length) return "No cards found.\n";
+  const rows = board.rows || [];
+  const unassigned = board.unassignedWorktrees || [];
+  if (!rows.length && !unassigned.length) return "No cards found.\n";
   const lines = [];
-  lines.push(
-    [pad("ID", 7), pad("STATE", 14), pad("TITLE", 34), pad("WORKTREE", 30), pad("VENDOR", 10), "CHECK"].join("  "),
-  );
-  lines.push("-".repeat(110));
-  for (const r of rows) {
-    const wt = r.cwdUnsafe
-      ? r.worktree
-        ? `${shortPath(r.worktree, board.root)} (unsafe)`
-        : "cwd=root (unsafe)"
-      : shortPath(r.worktree, board.root);
-    const check = r.lastCheck
-      ? r.lastCheck.rc === 0
-        ? "pass"
-        : `fail rc=${r.lastCheck.rc}`
-      : "—";
+  if (rows.length) {
     lines.push(
-      [pad(r.id, 7), pad(r.state, 14), pad(r.title, 34), pad(wt, 30), pad(r.vendor || "—", 10), check].join("  "),
+      [pad("ID", 7), pad("STATE", 14), pad("TITLE", 34), pad("WORKTREE", 30), pad("VENDOR", 10), "CHECK"].join("  "),
     );
+    lines.push("-".repeat(110));
+    for (const r of rows) {
+      const wt = r.cwdUnsafe
+        ? r.worktree
+          ? `${shortPath(r.worktree, board.root)} (unsafe)`
+          : "cwd=root (unsafe)"
+        : shortPath(r.worktree, board.root);
+      const check = formatCheckCell(r.lastCheck, r.cwdUnsafe);
+      lines.push(
+        [pad(r.id, 7), pad(r.state, 14), pad(r.title, 34), pad(wt, 30), pad(r.vendor || "—", 10), check].join("  "),
+      );
+    }
+    const allDone = rows.every((r) => r.status === "done");
+    const noChecks = rows.every((r) => !r.lastCheck);
+    if (allDone && noChecks) {
+      lines.push("");
+      lines.push(
+        "audit: all cards done; CHECK is empty until this process runs check. Not a stuck wave.",
+      );
+    }
+  } else {
+    lines.push("No cards found.");
+  }
+  if (unassigned.length) {
+    lines.push("");
+    lines.push("UNASSIGNED WORKTREES (not in workspaces.jsonl; not guessed as cards)");
+    for (const u of unassigned) {
+      const branch = u.branch || "—";
+      lines.push(`  ${shortPath(u.path, board.root)}  ${branch}`);
+    }
   }
   return lines.join("\n") + "\n";
 }

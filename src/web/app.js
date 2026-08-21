@@ -30,9 +30,21 @@ function shortPath(p) {
 function fmtCheck(row) {
   const last = row.lastCheck;
   if (!last) return "—";
+  const kind = last.execKind || "ran";
+  if (kind !== "ran") {
+    const labels = {
+      eacces: "exec EACCES",
+      enoent: "exec ENOENT",
+      timeout: "exec timeout",
+      refused: "exec refused",
+    };
+    return labels[kind] || "exec error";
+  }
   const t = last.at ? new Date(last.at).toLocaleTimeString() : "";
-  const core = last.rc === 0 ? `pass ${t}` : `fail rc=${last.rc} ${t}`;
-  return last.cwdUnsafe ? `${core} · cwd=root (unsafe)` : core;
+  if (row.cwdUnsafe || last.cwdUnsafe) {
+    return last.rc === 0 ? `unsafe ${t}`.trim() : `fail rc=${last.rc} ${t}`.trim();
+  }
+  return last.rc === 0 ? `pass ${t}`.trim() : `fail rc=${last.rc} ${t}`.trim();
 }
 
 function worktreeCell(row) {
@@ -61,11 +73,15 @@ function renderBoard(board) {
   }
   projectPill.textContent = "project " + shortPath(board.root);
   const rows = board.rows || [];
+  const orphans = board.unassignedWorktrees || [];
+  const orphanNote = orphans.length
+    ? `<tr><td colspan="7" class="empty">UNASSIGNED ${orphans.length} git worktree(s) — not in jsonl; not guessed as cards.</td></tr>`
+    : "";
   if (!rows.length) {
-    bodyEl.innerHTML = `<tr><td colspan="7" class="empty">No cards found.</td></tr>`;
+    bodyEl.innerHTML = orphanNote || `<tr><td colspan="7" class="empty">No cards found.</td></tr>`;
     return;
   }
-  bodyEl.innerHTML = rows.map((raw) => {
+  bodyEl.innerHTML = orphanNote + rows.map((raw) => {
     const row = sanitizeRow(raw);
     const busy = checking.has(row.id);
     const flags = [];
@@ -109,7 +125,10 @@ async function loadWave() {
       waveCache = data.blocks.map((b) => b.text).join("\n\n") + "\n";
     } else {
       const blocked = (data.blocked || []).join(", ");
-      waveCache = `No buildable cards.${blocked ? "\nready-blocked: " + blocked : ""}\n`;
+      const audit = data.audit
+        ? "\naudit: all cards done — empty wave is expected, not a stuck wave."
+        : "";
+      waveCache = `No buildable cards.${blocked ? "\nready-blocked: " + blocked : ""}${audit}\n`;
     }
     waveEl.textContent = waveCache;
   } catch (err) {

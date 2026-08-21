@@ -5,7 +5,7 @@
 import { watch, existsSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import readline from "node:readline";
-import { boardState, resolveFlowBin, runCheck } from "./lib/flow.mjs";
+import { boardState, formatCheckCell, resolveFlowBin, runCheck } from "./lib/flow.mjs";
 
 const RESET = "\x1b[0m";
 const DIM = "\x1b[2m";
@@ -94,12 +94,7 @@ function worktreeCell(row, root) {
 
 function checkCell(row, checkingId) {
   if (checkingId && row.id === checkingId) return "checking\u2026";
-  const last = row.lastCheck;
-  if (!last) return "—";
-  if (row.cwdUnsafe || last.cwdUnsafe) {
-    return last.rc === 0 ? "unsafe" : `fail rc=${last.rc}`;
-  }
-  return last.rc === 0 ? "pass" : `fail rc=${last.rc}`;
+  return formatCheckCell(row.lastCheck, row.cwdUnsafe);
 }
 
 function stateText(row) {
@@ -116,7 +111,7 @@ function colWidths(width) {
   const gaps = 8;
   let idW = 7;
   let stateW = 14;
-  let checkW = 11;
+  let checkW = 12;
   let titleW = 16;
   let wtW = 14;
   const total = () => prefix + idW + stateW + titleW + wtW + checkW + gaps;
@@ -232,6 +227,15 @@ function headerBlock(board, width) {
     width,
   )) {
     lines.push(paintBadges(clip(line, width)));
+  }
+  const orphans = board?.unassignedWorktrees || [];
+  if (orphans.length) {
+    for (const line of wrapPlain(
+      `UNASSIGNED ${orphans.length} git worktree(s) — not in jsonl; not guessed as cards.`,
+      width,
+    )) {
+      lines.push(clip(line, width));
+    }
   }
   lines.push("");
   return lines;

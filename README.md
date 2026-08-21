@@ -3,7 +3,7 @@
 A **gate-aware operator dashboard** for [flow](https://github.com/) projects.
 
 flow-deck shows, in one local board (web or TUI), which build **cards** of a parallel wave are
-`todo · building · blocked · gate-FAIL · gate-PASS · security-halt · done` — by reading
+`todo · building · ready-blocked · check-fail · check-pass · security-halt · done` — by reading
 flow's world-state and running `flow.sh check` in each card's worktree.
 
 > flow-deck is **not** a terminal, **not** a multiplexer, and **not** flow. It is a *view*.
@@ -32,9 +32,14 @@ flow-deck wave             # print paste-ready "enter" blocks for the buildable 
 
 ## Install
 
+Not on npm yet. From a clone:
+
 ```bash
-npx @manhquy/flow-deck@latest serve
+node src/cli.mjs serve
+# or: node src/cli.mjs status
 ```
+
+An all-done board with no workspaces.jsonl and an empty wave is a **successful audit**, not a stuck wave. CHECK is empty (`—`) until this process runs `check`.
 
 ## Boundary
 
